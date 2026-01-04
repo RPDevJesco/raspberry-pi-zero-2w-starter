@@ -1,0 +1,41 @@
+# config.txt - Raspberry Pi Zero 2 W Boot Configuration
+#
+# This file configures the GPU bootloader before our kernel runs.
+# Place in root of FAT32 boot partition.
+
+# Force 64-bit mode (ARMv8/AArch64)
+arm_64bit=1
+
+# Disable Bluetooth (uses mini UART which we don't need)
+dtoverlay=disable-bt
+
+# GPU memory split (MB) - need enough for framebuffer
+gpu_mem=128
+
+# HDMI Configuration - FORCE OUTPUT
+hdmi_force_hotplug=1
+hdmi_ignore_edid=0xa5000080
+
+# Use DMT (computer monitor) mode
+hdmi_group=2
+
+# 1280x720 @ 60Hz
+hdmi_mode=85
+
+# Boost HDMI signal for long cables or problematic displays
+config_hdmi_boost=7
+
+# Disable overscan (no black borders)
+disable_overscan=1
+
+# Boot our kernel
+kernel=kernel8.img
+
+# Disable rainbow splash
+disable_splash=1
+
+# UART for debugging (optional - connect TX to USB-serial)
+enable_uart=1
+
+# Disable firmware warnings on HDMI
+avoid_warnings=1
