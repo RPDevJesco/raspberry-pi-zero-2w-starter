@@ -1,284 +1,270 @@
-# Raspberry Pi Zero 2 W Bare-Metal Kernel
+# Pi Zero 2 W Bare-Metal Kernel
 
-A custom bootloader and kernel that displays device specifications on HDMI output with classic green-on-black terminal aesthetics.
+A minimal bare-metal kernel for the Raspberry Pi Zero 2 W that boots without any operating system and displays hardware specifications on HDMI output.
 
-```
-╔══════════════════════════════════════════════════════════════╗
-║  RASPBERRY PI ZERO 2 W                                       ║
-║  Custom Bare-Metal Kernel v1.0                               ║
-╚══════════════════════════════════════════════════════════════╝
+## What It Does
 
-=== BOARD INFORMATION ===
-Model:          Raspberry Pi Zero 2 W
-Revision:       0x902120
-Serial:         10000000XXXXXXXX
-Firmware:       XXXXXXXX
+This kernel boots directly on the ARM Cortex-A53 processor, bypassing Linux entirely, and:
 
-=== PROCESSOR ===
-SoC:            BCM2710A1 (Broadcom)
-CPU:            Quad-core ARM Cortex-A53
-Architecture:   ARMv8-A (64-bit)
-ARM Clock:      1000 MHz
-Core Clock:     400 MHz
+- **Initializes the HDMI framebuffer** via the VideoCore mailbox interface
+- **Queries hardware information** including board revision, serial number, clock speeds, and memory configuration
+- **Renders text** using an 8x8 bitmap font in classic green-on-black terminal style
+- **Provides LED feedback** via the onboard ACT LED for debugging
 
-=== MEMORY ===
-ARM Memory:     512 MB @ 0x00000000
-GPU Memory:     64 MB @ 0x1C000000
-SDRAM Clock:    450 MHz
+### Displayed Information
 
-...
-```
+| Section | Data |
+|---------|------|
+| Board | Model name, revision code, serial number, firmware version |
+| Processor | SoC model, CPU cores, architecture, ARM/core clock speeds |
+| Memory | ARM memory size/base, GPU memory size/base, SDRAM clock |
+| Network | WiFi/Bluetooth specs, MAC address |
+| Display | Resolution, color depth, pitch, framebuffer address |
 
-## Architecture
+## Hardware Requirements
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    SD Card (FAT32)                          │
-│  bootcode.bin → start.elf → kernel8.img (our kernel)       │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Boot Sequence                             │
-│  1. GPU loads bootcode.bin from SD                          │
-│  2. bootcode.bin loads start.elf                            │
-│  3. start.elf reads config.txt, loads kernel8.img @ 0x80000 │
-│  4. ARM cores released from reset                           │
-│  5. boot.S parks cores 1-3, core 0 jumps to kernel_main     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    Kernel Components                         │
-│                                                              │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐         │
-│  │   Mailbox   │  │ Framebuffer │  │   Sysinfo   │         │
-│  │   Driver    │──│   Driver    │──│   Query     │         │
-│  └─────────────┘  └─────────────┘  └─────────────┘         │
-│         │                │                │                  │
-│         ▼                ▼                ▼                  │
-│  ┌─────────────────────────────────────────────────┐        │
-│  │              VideoCore GPU                       │        │
-│  │   (Mailbox Interface @ 0x3F00B880)              │        │
-│  └─────────────────────────────────────────────────┘        │
-└─────────────────────────────────────────────────────────────┘
-```
+- **Raspberry Pi Zero 2 W** (BCM2710A1 / Cortex-A53)
+- **MicroSD card** (any size, formatted FAT32)
+- **Mini HDMI cable** and display
+- **5V micro-USB power supply**
+
+This kernel is specifically written for the Pi Zero 2 W. It will not work on Pi 4/5 (different peripheral base address) or Pi Zero/Zero W (32-bit ARM11).
 
 ## Building
 
 ### Prerequisites
 
-Install the AArch64 bare-metal cross-compiler:
+Install the AArch64 cross-compiler:
 
-**Option 1: ARM GNU Toolchain (recommended)**
-```bash
-# Download from ARM website:
-# https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads
-# Get: aarch64-none-elf (AArch64 bare-metal target)
-
-# Extract and add to PATH
-export PATH=$PATH:/path/to/arm-gnu-toolchain/bin
-```
-
-**Option 2: Linux toolchain (may have extra libraries)**
 ```bash
 # Ubuntu/Debian
 sudo apt install gcc-aarch64-linux-gnu
 
-# Then edit Makefile, change:
-CROSS = aarch64-linux-gnu-
+# Or download ARM GNU Toolchain from:
+# https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads
 ```
 
-### Build
+### Compile
 
 ```bash
-# Clone/download this project
-cd pi-kernel
-
-# Build
 make
-
-# Output files in build/:
-#   kernel8.img  - The kernel binary
-#   config.txt   - Boot configuration
 ```
 
-### Build Output
-
+Output:
 ```
-=== Build Complete ===
-Kernel image: build/kernel8.img
--rw-r--r-- 1 user user 8.5K Jan  3 12:00 build/kernel8.img
+build/kernel8.img   - Kernel binary (≈10KB)
+build/config.txt    - Boot configuration
+```
 
-=== SD Card Files ===
-Copy the following to your SD card FAT32 partition:
-  1. build/kernel8.img
-  2. build/config.txt
-  3. Raspberry Pi firmware files (bootcode.bin, start.elf, fixup.dat)
+### Other Make Targets
+
+```bash
+make clean      # Remove build artifacts
+make size       # Show section sizes
+make disasm     # Generate disassembly
 ```
 
 ## Deployment
 
-### Prepare SD Card
+### Quick Setup
 
-1. **Format SD card** with FAT32 filesystem (the Pi boot partition)
+Run the included script to download firmware and prepare all files:
 
-2. **Download firmware files** from Raspberry Pi:
-   ```bash
-   # From https://github.com/raspberrypi/firmware/tree/master/boot
-   # You need:
-   #   - bootcode.bin
-   #   - start.elf (or start4.elf for Pi 4)
-   #   - fixup.dat (or fixup4.dat for Pi 4)
-   
-   wget https://github.com/raspberrypi/firmware/raw/master/boot/bootcode.bin
-   wget https://github.com/raspberrypi/firmware/raw/master/boot/start.elf
-   wget https://github.com/raspberrypi/firmware/raw/master/boot/fixup.dat
+```bash
+./setup_sdcard.sh
+```
+
+This creates an `sdcard/` folder with everything needed.
+
+### Manual Setup
+
+1. **Format SD card as FAT32**
+
+2. **Download Raspberry Pi firmware** from [raspberrypi/firmware](https://github.com/raspberrypi/firmware/tree/master/boot):
+   - `bootcode.bin`
+   - `start.elf`
+   - `fixup.dat`
+
+3. **Copy files to SD card root:**
    ```
-
-3. **Copy files to SD card**:
-   ```
-   SD Card (FAT32):
-   ├── bootcode.bin    (from Raspberry Pi firmware)
-   ├── start.elf       (from Raspberry Pi firmware)
-   ├── fixup.dat       (from Raspberry Pi firmware)
+   SD Card (FAT32)/
+   ├── bootcode.bin    (from Pi firmware)
+   ├── start.elf       (from Pi firmware)
+   ├── fixup.dat       (from Pi firmware)
    ├── config.txt      (from build/)
    └── kernel8.img     (from build/)
    ```
 
-4. **Insert SD card** into Pi Zero 2 W, connect HDMI, power on
+4. **Insert SD card**, connect HDMI, then power on
 
-### Expected Output
+### LED Indicators
 
-On HDMI display, you should see green text on black background showing:
-- Board model and revision
-- Serial number
-- Processor information (BCM2710A1, Cortex-A53)
-- Clock speeds (ARM, Core, SDRAM)
-- Memory configuration
-- Network info (WiFi, Bluetooth, MAC address)
-- Display configuration
+| Pattern | Meaning |
+|---------|---------|
+| 1 blink | Kernel started |
+| 2 blinks | Framebuffer initialized |
+| 3 blinks | Drawing to screen |
+| Slow heartbeat | Success - display should be active |
+| Rapid 5-blink bursts | Framebuffer initialization failed |
 
 ## Project Structure
 
 ```
 pi-kernel/
-├── Makefile              # Build system
-├── linker.ld             # Memory layout (kernel @ 0x80000)
+├── Makefile                 # Build configuration
+├── linker.ld                # Memory layout (kernel @ 0x80000)
+├── setup_sdcard.sh          # Firmware download helper
+│
 ├── boot/
-│   └── config.txt        # Pi boot configuration
+│   └── config.txt           # GPU bootloader configuration
+│
 ├── include/
-│   ├── types.h           # Basic type definitions
-│   ├── gpio.h            # BCM2710 peripheral addresses
-│   ├── mailbox.h         # VideoCore mailbox interface
-│   ├── framebuffer.h     # HDMI framebuffer
-│   ├── font8x8.h         # 8x8 bitmap font
-│   ├── sysinfo.h         # System information query
-│   └── string.h          # String utilities
+│   ├── types.h              # uint32_t, bool, etc.
+│   ├── gpio.h               # BCM2710 peripheral addresses
+│   ├── mailbox.h            # VideoCore mailbox protocol
+│   ├── framebuffer.h        # HDMI framebuffer interface
+│   ├── font8x8.h            # Bitmap font data
+│   ├── sysinfo.h            # Hardware query interface
+│   ├── string.h             # String utilities
+│   └── led.h                # ACT LED control
+│
 ├── src/
-│   ├── boot.S            # AArch64 entry point
+│   ├── boot.S               # AArch64 entry point
 │   ├── drivers/
-│   │   ├── mailbox.c     # Mailbox implementation
-│   │   └── framebuffer.c # Framebuffer driver
+│   │   ├── mailbox.c        # Mailbox read/write/call
+│   │   └── framebuffer.c    # FB init, pixel/text drawing
 │   ├── kernel/
-│   │   ├── kernel.c      # Main kernel
-│   │   └── sysinfo.c     # Hardware info query
+│   │   ├── kernel.c         # Main entry, display rendering
+│   │   └── sysinfo.c        # Hardware info queries
 │   └── lib/
-│       └── string.c      # String functions
-└── build/                # Output directory
+│       └── string.c         # memset, strcpy, itoa, etc.
+│
+└── build/                   # Compiled output
 ```
 
 ## Technical Details
 
-### Memory Map (BCM2710)
+### Memory Map (Pi Zero 2 W)
+
+| Address | Region |
+|---------|--------|
+| `0x00000000` | ARM memory base |
+| `0x00080000` | Kernel load address |
+| `0x1C000000` | VideoCore GPU memory (with 128MB split) |
+| `0x3F000000` | Peripheral registers |
+| `0x3F00B880` | Mailbox interface |
+| `0x3F200000` | GPIO registers |
+
+### Boot Sequence
 
 ```
-0x00000000 - 0x1BFFFFFF  ARM memory (448 MB)
-0x1C000000 - 0x1FFFFFFF  VideoCore GPU memory (64 MB)
-0x3F000000 - 0x3FFFFFFF  Peripheral registers
-0x40000000 -             Local peripherals (ARM control)
+GPU Power On
+    │
+    ▼
+bootcode.bin (GPU first stage)
+    │
+    ▼
+start.elf (GPU firmware, reads config.txt)
+    │
+    ▼
+kernel8.img loaded to 0x80000
+    │
+    ▼
+ARM cores released from reset
+    │
+    ▼
+_start (boot.S)
+    ├── Core 0: Clear BSS → kernel_main()
+    └── Cores 1-3: WFE loop (parked)
 ```
 
 ### Mailbox Protocol
 
-Communication with VideoCore GPU uses the mailbox interface:
-- Write buffer address to `MAILBOX_WRITE` (channel in low 4 bits)
-- Poll `MAILBOX_STATUS` until not full/empty
-- Read response from `MAILBOX_READ`
+The ARM communicates with the VideoCore GPU through a mailbox interface. Key points:
 
-Property tags allow querying/setting hardware parameters like:
-- Board revision and serial
-- Memory configuration
-- Clock rates
-- Framebuffer allocation
+- **Address**: `0x3F00B880`
+- **Channel 8**: Property tags (ARM → VC)
+- **Buffer alignment**: 16 bytes
+- **Bus address translation**: Clear bit 30 (`& 0x3FFFFFFF`) to convert GPU address to ARM address
 
-### Boot Process
+#### Framebuffer Mailbox Buffer Layout
 
-1. **GPU Boot**: VideoCore GPU starts first, loads `bootcode.bin`
-2. **Second Stage**: `bootcode.bin` loads `start.elf` 
-3. **ARM Release**: `start.elf` reads `config.txt`, loads kernel, releases ARM cores
-4. **Kernel Start**: All 4 ARM cores begin at `_start` (0x80000)
-5. **Core Parking**: Cores 1-3 enter WFE loop, core 0 continues
-6. **BSS Clear**: Core 0 zeros BSS section
-7. **C Entry**: Jump to `kernel_main()`
-
-## Debugging
-
-### UART Output
-
-Add UART support for debug output:
 ```c
-// In gpio.h - UART base
-#define UART0_BASE (PERIPHERAL_BASE + 0x201000)
-
-// Add uart.c with init and putc functions
+[0]  = total size in bytes
+[1]  = request code (0x00000000)
+[2]  = 0x00048003  // TAG: Set physical W/H
+[3]  = 8           // Value buffer size
+[4]  = 0           // Request/response code
+[5]  = width
+[6]  = height
+[7]  = 0x00048004  // TAG: Set virtual W/H
+...
+[21] = 0x00040001  // TAG: Allocate framebuffer
+[22] = 8
+[23] = 0
+[24] = → framebuffer address (response)
+[25] = → framebuffer size (response)
+[26] = 0x00040008  // TAG: Get pitch
+[27] = 4
+[28] = 0
+[29] = → pitch in bytes (response)
+[30] = 0x00000000  // End tag
 ```
 
-### QEMU Emulation
+### Key Constants
 
-```bash
-# Pi 3 is closest to Zero 2 W in QEMU
-make qemu
+```c
+#define PERIPHERAL_BASE     0x3F000000
+#define MAILBOX_BASE        (PERIPHERAL_BASE + 0xB880)
+#define GPIO_BASE           (PERIPHERAL_BASE + 0x200000)
 
-# Note: Hardware differences may cause issues
-# Real hardware testing recommended
+#define ACT_LED_PIN         29      // Active low
+
+#define TAG_FB_ALLOC        0x00040001
+#define TAG_FB_SET_PHYS_WH  0x00048003
+#define TAG_FB_SET_DEPTH    0x00048005
+#define TAG_FB_GET_PITCH    0x00040008
 ```
 
-### Disassembly
+## Language & Standards
 
-```bash
-make disasm
-# Output: build/kernel.dis
-```
+- **C99** with GNU extensions
+- `__attribute__((aligned(16)))` for DMA buffer alignment
+- `asm volatile()` for ARM intrinsics (`wfe`, `nop`)
+- No standard library — all functions implemented from scratch
+
+## Common Issues
+
+**Black screen, solid green LED:**
+- Framebuffer address read from wrong mailbox buffer index
+- Check `mailbox_buffer[24]` for FB address, `[29]` for pitch
+
+**Black screen, no LED activity:**
+- SD card not FAT32 or files not at root level
+- Missing firmware files (`bootcode.bin`, `start.elf`)
+
+**Black screen, LED blinking rapidly:**
+- Mailbox call failing — check `gpu_mem` in config.txt (needs ≥64)
+
+**Kernel not loading:**
+- Verify `kernel=kernel8.img` and `arm_64bit=1` in config.txt
 
 ## Extending
 
-### Add USB Support
-The Zero 2 W has a single micro-USB OTG port. Implementing USB requires:
-- DWC2 USB controller driver
-- USB stack (enumeration, descriptors)
-- Device class drivers (HID, mass storage)
+Ideas for further development:
 
-### Add WiFi
-Requires:
-- SDIO driver for CYW43439 chip
-- WiFi firmware blob
-- 802.11 protocol stack
-
-### Multi-core
-Currently cores 1-3 are parked. To use them:
-```c
-// Write entry point address to mailbox
-// Each core reads its designated mailbox and jumps
-```
-
-## References
-
-- [BCM2835 ARM Peripherals](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2835/BCM2835-ARM-Peripherals.pdf)
-- [Raspberry Pi Firmware](https://github.com/raspberrypi/firmware)
-- [ARM Cortex-A53 TRM](https://developer.arm.com/documentation/ddi0500/latest)
-- [OSDev Raspberry Pi Bare Bones](https://wiki.osdev.org/Raspberry_Pi_Bare_Bones)
+- **UART console** — Add serial output for debugging (`0x3F201000`)
+- **USB input** — Implement DWC2 USB controller driver
+- **Multi-core** — Wake cores 1-3 via mailbox spin table
+- **PWM audio** — Generate tones through headphone jack
+- **GPIO control** — Blink external LEDs, read buttons
 
 ## License
 
-MIT License - Do whatever you want with it.
+MIT — Do whatever you want with it.
+
+## Acknowledgments
+
+- [Raspberry Pi firmware](https://github.com/raspberrypi/firmware)
+- [BCM2835 ARM Peripherals](https://www.raspberrypi.org/documentation/hardware/raspberrypi/bcm2835/)
+- [OSDev Wiki](https://wiki.osdev.org/Raspberry_Pi_Bare_Bones)
